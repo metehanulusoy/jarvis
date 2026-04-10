@@ -6,16 +6,18 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+# Whisper model is expensive to load — cache it across calls
+_whisper_model = None
 
-def record_audio(duration: int = 5, sample_rate: int = 16000) -> Path:
-    """Record audio from microphone using macOS rec/sox or ffmpeg."""
+
+def record_audio(duration: int = 5) -> Path:
+    """Record audio from microphone. Uses native sample rate to avoid sox warnings."""
     tmpfile = Path(tempfile.mktemp(suffix=".wav"))
 
-    # Try sox first (brew install sox)
+    # sox/rec — record at native rate, Whisper handles resampling internally
     try:
         subprocess.run(
-            ["rec", "-q", "-r", str(sample_rate), "-c", "1", "-b", "16",
-             str(tmpfile), "trim", "0", str(duration)],
+            ["rec", "-q", str(tmpfile), "trim", "0", str(duration)],
             check=True,
             timeout=duration + 5,
         )
@@ -27,8 +29,7 @@ def record_audio(duration: int = 5, sample_rate: int = 16000) -> Path:
     try:
         subprocess.run(
             ["ffmpeg", "-y", "-f", "avfoundation", "-i", ":0",
-             "-t", str(duration), "-ar", str(sample_rate),
-             "-ac", "1", str(tmpfile)],
+             "-t", str(duration), "-ac", "1", str(tmpfile)],
             check=True,
             timeout=duration + 5,
             capture_output=True,
@@ -42,10 +43,18 @@ def record_audio(duration: int = 5, sample_rate: int = 16000) -> Path:
 
 def transcribe(audio_path: Path, model: str = "base") -> str:
     """Transcribe audio file using local Whisper model."""
+    global _whisper_model
     try:
         import whisper
-        model_obj = whisper.load_model(model)
-        result = model_obj.transcribe(str(audio_path))
+
+        # Load model once, reuse across calls
+        if _whisper_model is None:
+            _whisper_model = whisper.load_model(model)
+
+        result = _whisper_model.transcribe(
+            str(audio_path),
+            fp16=False,  # CPU doesn't support FP16
+        )
         return result["text"].strip()
     except ImportError:
         # Fallback: use whisper CLI
