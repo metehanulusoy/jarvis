@@ -26,5 +26,4 @@ def get_backend(cfg: Config, prefer_cloud: bool = False) -> LLMBackend:
     if openai.is_available():
         return openai
 
-    # Return ollama anyway — calls will fail with a clear connection error
     return ollama

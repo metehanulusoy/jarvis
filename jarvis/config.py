@@ -108,7 +108,6 @@ def load_config(path: str | Path | None = None) -> Config:
         model=openai_raw.get("model", "gpt-4o-mini"),
         api_key=_env(openai_raw.get("api_key_env")),
     )
-
     # Briefing
     br = raw.get("briefing", {})
     em = br.get("email", {})

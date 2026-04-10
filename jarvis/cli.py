@@ -207,26 +207,62 @@ def _repl(cfg, cloud, session_name):
             history.pop()
 
 
+def _detect_intent(text: str) -> tuple[str, str]:
+    """Detect what the user wants from their voice input.
+
+    Returns (intent, query) where intent is one of:
+    email, news, briefing, research, web_search, code, chat
+    """
+    lower = text.lower()
+
+    # Email keywords
+    if any(w in lower for w in ("mail", "meyil", "e-posta", "eposta", "inbox",
+                                 "gelen kutusu", "email", "gmail")):
+        return "email", text
+
+    # News keywords
+    if any(w in lower for w in ("haber", "news", "gündem", "son dakika",
+                                 "headline", "başlık")):
+        return "news", text
+
+    # Briefing keywords
+    if any(w in lower for w in ("brifing", "briefing", "özet", "sabah",
+                                 "morning", "günlük")):
+        return "briefing", text
+
+    # Web search keywords
+    if any(w in lower for w in ("ara", "search", "bul", "google", "internet",
+                                 "web", "araştır", "research")):
+        return "web_search", text
+
+    # Code keywords
+    if any(w in lower for w in ("kod", "code", "program", "script", "çalıştır",
+                                 "run", "execute")):
+        return "code", text
+
+    return "chat", text
+
+
 def _voice_mode(cfg, llm):
-    """Continuous voice conversation — listen, respond, speak, repeat."""
+    """Continuous voice conversation with smart intent detection."""
     from .speech import listen, speak
 
     console.print()
     console.print("[bold cyan]Voice mode activated.[/bold cyan]")
-    console.print("[dim]Speak after the beep. Say 'exit' or 'quit' to stop.[/dim]")
-    console.print("[dim]Press Ctrl+C to return to text mode.[/dim]")
+    console.print("[dim]Talk naturally — Jarvis can:[/dim]")
+    console.print("[dim]  Read your emails, give news, search the web,[/dim]")
+    console.print("[dim]  do research, run code, or just chat.[/dim]")
+    console.print("[dim]Say 'exit' or press Ctrl+C to stop.[/dim]")
     console.print()
 
     history = [VOICE_SYSTEM_MSG]
 
-    # Greeting
-    greeting = "I'm listening. Go ahead."
+    greeting = "Systems online. How can I help you?"
     console.print(f"[bold cyan]Jarvis>[/bold cyan] {greeting}")
-    speak(greeting, rate=185)
+    speak(greeting)
 
     while True:
         try:
-            # Listen
             console.print()
             console.print("[dim]Listening...[/dim]", end=" ")
             try:
@@ -245,20 +281,68 @@ def _voice_mode(cfg, llm):
             lower = user_text.lower().strip().rstrip(".")
             if lower in ("exit", "quit", "stop", "bye", "goodbye",
                          "çıkış", "kapat", "görüşürüz", "hoşçakal"):
-                farewell = "Goodbye! Switching back to text mode."
+                farewell = "Goodbye sir."
                 console.print(f"[bold cyan]Jarvis>[/bold cyan] {farewell}")
-                speak(farewell, rate=185)
+                speak(farewell)
                 break
 
-            # Get LLM response
-            history.append(Message(role="user", content=user_text))
-            response = llm.chat(history, temperature=0.7)
-            history.append(Message(role="assistant", content=response))
+            # Detect what the user wants
+            intent, query = _detect_intent(user_text)
+            response = None
 
-            console.print(f"[bold cyan]Jarvis>[/bold cyan] {response}")
+            if intent == "email":
+                console.print("[dim]Checking emails...[/dim]")
+                from .briefing.email_source import fetch_emails
+                emails = fetch_emails(cfg.briefing.email)
+                if emails and emails[0].sender != "error":
+                    email_summary = "\n".join(
+                        f"- {e.sender}: {e.subject}" for e in emails[:5]
+                    )
+                    history.append(Message(role="user", content=f"E-postalarımı özetle:\n{email_summary}"))
+                    response = llm.chat(history, temperature=0.5)
+                else:
+                    response = "E-postalarınıza erişemedim. Gmail ayarlarınızı kontrol edin."
 
-            # Speak the response
-            speak(response, rate=185)
+            elif intent == "news":
+                console.print("[dim]Fetching news...[/dim]")
+                from .briefing.news_source import fetch_news
+                news = fetch_news(cfg.briefing.news)
+                if news:
+                    headlines = "\n".join(f"- [{n.source}] {n.title}" for n in news[:7])
+                    history.append(Message(role="user", content=f"Bu haberleri Türkçe özetle:\n{headlines}"))
+                    response = llm.chat(history, temperature=0.5)
+                else:
+                    response = "Haber akışına erişemedim."
+
+            elif intent == "briefing":
+                console.print("[dim]Preparing briefing...[/dim]")
+                from .briefing.briefing import run_briefing
+                response = run_briefing(cfg.briefing, llm, console)
+
+            elif intent == "web_search":
+                console.print("[dim]Searching the web...[/dim]")
+                from .research.web_search import search_web
+                results = search_web(user_text, max_results=5)
+                if results and results[0].title != "Search error":
+                    context = "\n".join(f"- {r.title}: {r.snippet}" for r in results)
+                    history.append(Message(role="user", content=f"Bu arama sonuçlarına göre cevap ver:\nSoru: {user_text}\nSonuçlar:\n{context}"))
+                    response = llm.chat(history, temperature=0.5)
+                else:
+                    response = "Web aramasında sonuç bulamadım."
+
+            elif intent == "code":
+                history.append(Message(role="user", content=user_text))
+                response = llm.chat(history, temperature=0.3)
+
+            else:
+                # Regular chat
+                history.append(Message(role="user", content=user_text))
+                response = llm.chat(history, temperature=0.7)
+
+            if response:
+                history.append(Message(role="assistant", content=response))
+                console.print(f"[bold cyan]Jarvis>[/bold cyan] {response}")
+                speak(response)
 
         except KeyboardInterrupt:
             console.print("\n[dim]Voice mode ended.[/dim]")

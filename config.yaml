@@ -4,7 +4,7 @@ llm:
     url: "http://localhost:11434"
   openai:
     model: "gpt-4o-mini"
-    api_key_env: "OPENAI_API_KEY"   # reads from this env var; never put the key here
+    api_key_env: "OPENAI_API_KEY"
 
 briefing:
   email:
