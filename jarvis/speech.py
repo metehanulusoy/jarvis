@@ -10,8 +10,8 @@ from pathlib import Path
 # Cache Whisper model across calls (expensive to load)
 _whisper_model = None
 
-# Jarvis voice config — deep, calm, male English voice (like Iron Man's JARVIS)
-JARVIS_VOICE = "en-US-GuyNeural"
+# Jarvis voice config — British, deep, calm (closest to Iron Man's JARVIS)
+JARVIS_VOICE = "en-GB-RyanNeural"
 JARVIS_RATE = "-5%"
 JARVIS_PITCH = "-10Hz"
 
