@@ -1,6 +1,6 @@
 llm:
   ollama:
-    model: "llama3.2"
+    model: "gemma3:12b"
     url: "http://localhost:11434"
   openai:
     model: "gpt-4o-mini"

@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import tempfile
 from pathlib import Path
 
-# Whisper model is expensive to load — cache it across calls
+# Cache Whisper model across calls (expensive to load)
 _whisper_model = None
+
+# Jarvis voice config — deep, calm, male English voice (like Iron Man's JARVIS)
+JARVIS_VOICE = "en-US-GuyNeural"
+JARVIS_RATE = "-5%"
+JARVIS_PITCH = "-10Hz"
 
 
 def record_audio(duration: int = 5) -> Path:
-    """Record audio from microphone. Uses native sample rate to avoid sox warnings."""
+    """Record audio from microphone. Uses native sample rate."""
     tmpfile = Path(tempfile.mktemp(suffix=".wav"))
 
-    # sox/rec — record at native rate, Whisper handles resampling internally
+    # sox/rec — record at native rate, Whisper handles resampling
     try:
         subprocess.run(
             ["rec", "-q", str(tmpfile), "trim", "0", str(duration)],
@@ -47,17 +53,15 @@ def transcribe(audio_path: Path, model: str = "base") -> str:
     try:
         import whisper
 
-        # Load model once, reuse across calls
         if _whisper_model is None:
             _whisper_model = whisper.load_model(model)
 
         result = _whisper_model.transcribe(
             str(audio_path),
-            fp16=False,  # CPU doesn't support FP16
+            fp16=False,
         )
         return result["text"].strip()
     except ImportError:
-        # Fallback: use whisper CLI
         try:
             result = subprocess.run(
                 ["whisper", str(audio_path), "--model", model,
@@ -79,7 +83,15 @@ def transcribe(audio_path: Path, model: str = "base") -> str:
 
 
 def speak(text: str, rate: int = 175) -> None:
-    """Speak text aloud using macOS say command."""
+    """Speak text using edge-tts (Jarvis voice), fallback to macOS say."""
+    # Try edge-tts first — much better quality, Jarvis-like voice
+    try:
+        _speak_edge_tts(text)
+        return
+    except Exception:
+        pass
+
+    # Fallback to macOS say
     try:
         subprocess.run(
             ["say", "-r", str(rate), text],
@@ -94,6 +106,32 @@ def speak(text: str, rate: int = 175) -> None:
             engine.runAndWait()
         except Exception:
             pass
+
+
+def _speak_edge_tts(text: str) -> None:
+    """Use Microsoft Edge TTS for high-quality Jarvis-like voice."""
+    import edge_tts
+
+    tmpfile = Path(tempfile.mktemp(suffix=".mp3"))
+    try:
+        async def _generate():
+            communicate = edge_tts.Communicate(
+                text,
+                voice=JARVIS_VOICE,
+                rate=JARVIS_RATE,
+                pitch=JARVIS_PITCH,
+            )
+            await communicate.save(str(tmpfile))
+
+        asyncio.run(_generate())
+
+        # Play the audio
+        subprocess.run(
+            ["afplay", str(tmpfile)],
+            check=True, timeout=300,
+        )
+    finally:
+        tmpfile.unlink(missing_ok=True)
 
 
 def listen(duration: int = 5, model: str = "base") -> str:
