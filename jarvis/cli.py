@@ -33,6 +33,16 @@ SYSTEM_MSG = Message(
     ),
 )
 
+VOICE_SYSTEM_MSG = Message(
+    role="system",
+    content=(
+        "You are Jarvis, a personal AI assistant having a spoken conversation. "
+        "Keep your replies short and natural — 1-3 sentences max, like a real conversation. "
+        "Never use markdown, bullet points, or formatting. Speak naturally. "
+        "You are running locally for privacy."
+    ),
+)
+
 
 @click.group(invoke_without_command=True)
 @click.option("--config", "-c", default=None, help="Path to config.yaml")
@@ -67,6 +77,7 @@ def _repl(cfg, cloud, session_name):
     console.print(BANNER)
     console.print(f"[dim]Backend: {llm.name} | Session: {session_name}[/dim]")
     console.print("[dim]Commands:[/dim]")
+    console.print("[dim]  /voice     — start voice conversation (talk to Jarvis!)[/dim]")
     console.print("[dim]  /briefing  /research <q>  /code <task>  /web <q>  /docs <q>[/dim]")
     console.print("[dim]  /listen    /history       /sessions     /clear    /quit[/dim]")
     console.print()
@@ -96,7 +107,12 @@ def _repl(cfg, cloud, session_name):
             scheduler.stop()
             break
 
-        # --- Voice input ---
+        # --- Voice conversation mode ---
+        if user_input.lower() == "/voice":
+            _voice_mode(cfg, llm)
+            continue
+
+        # --- Voice input (single) ---
         if user_input.lower() == "/listen":
             try:
                 from .speech import listen
@@ -190,6 +206,66 @@ def _repl(cfg, cloud, session_name):
             history.pop()
 
 
+def _voice_mode(cfg, llm):
+    """Continuous voice conversation — listen, respond, speak, repeat."""
+    from .speech import listen, speak
+
+    console.print()
+    console.print("[bold cyan]Voice mode activated.[/bold cyan]")
+    console.print("[dim]Speak after the beep. Say 'exit' or 'quit' to stop.[/dim]")
+    console.print("[dim]Press Ctrl+C to return to text mode.[/dim]")
+    console.print()
+
+    history = [VOICE_SYSTEM_MSG]
+
+    # Greeting
+    greeting = "I'm listening. Go ahead."
+    console.print(f"[bold cyan]Jarvis>[/bold cyan] {greeting}")
+    speak(greeting, rate=185)
+
+    while True:
+        try:
+            # Listen
+            console.print()
+            console.print("[dim]Listening...[/dim]", end=" ")
+            try:
+                user_text = listen(duration=6)
+            except Exception as e:
+                console.print(f"[red]{e}[/red]")
+                continue
+
+            if not user_text or len(user_text.strip()) < 2:
+                console.print("[yellow]Didn't catch that. Try again.[/yellow]")
+                continue
+
+            console.print(f"[bold green]You>[/bold green] {user_text}")
+
+            # Check for exit
+            lower = user_text.lower().strip().rstrip(".")
+            if lower in ("exit", "quit", "stop", "bye", "goodbye",
+                         "çıkış", "kapat", "görüşürüz", "hoşçakal"):
+                farewell = "Goodbye! Switching back to text mode."
+                console.print(f"[bold cyan]Jarvis>[/bold cyan] {farewell}")
+                speak(farewell, rate=185)
+                break
+
+            # Get LLM response
+            history.append(Message(role="user", content=user_text))
+            response = llm.chat(history, temperature=0.7)
+            history.append(Message(role="assistant", content=response))
+
+            console.print(f"[bold cyan]Jarvis>[/bold cyan] {response}")
+
+            # Speak the response
+            speak(response, rate=185)
+
+        except KeyboardInterrupt:
+            console.print("\n[dim]Voice mode ended.[/dim]")
+            break
+
+    console.print()
+
+
 def _auto_briefing(cfg, llm):
     """Called by the scheduler for the morning briefing."""
     from .briefing.briefing import run_briefing
@@ -250,6 +326,15 @@ def listen(ctx, duration):
         console.print(f"[bold]Transcribed:[/bold] {text}")
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
+
+
+@main.command()
+@click.pass_context
+def voice(ctx):
+    """Start a voice conversation with Jarvis."""
+    cfg = ctx.obj["cfg"]
+    llm = get_backend(cfg, prefer_cloud=ctx.obj["cloud"])
+    _voice_mode(cfg, llm)
 
 
 @main.command()

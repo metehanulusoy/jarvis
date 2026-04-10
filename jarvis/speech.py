@@ -1,10 +1,9 @@
-"""Speech-to-text using local Whisper model."""
+"""Speech-to-text and text-to-speech for voice conversations."""
 
 from __future__ import annotations
 
 import subprocess
 import tempfile
-import wave
 from pathlib import Path
 
 
@@ -37,8 +36,7 @@ def record_audio(duration: int = 5, sample_rate: int = 16000) -> Path:
         return tmpfile
     except FileNotFoundError:
         raise RuntimeError(
-            "No audio recorder found. Install sox (brew install sox) "
-            "or ffmpeg (brew install ffmpeg)."
+            "No audio recorder found. Install: brew install sox"
         )
 
 
@@ -50,14 +48,12 @@ def transcribe(audio_path: Path, model: str = "base") -> str:
         result = model_obj.transcribe(str(audio_path))
         return result["text"].strip()
     except ImportError:
-        # Fallback: use whisper CLI if installed
+        # Fallback: use whisper CLI
         try:
             result = subprocess.run(
                 ["whisper", str(audio_path), "--model", model,
                  "--output_format", "txt", "--output_dir", "/tmp"],
-                capture_output=True,
-                text=True,
-                timeout=60,
+                capture_output=True, text=True, timeout=60,
             )
             txt_path = Path(f"/tmp/{audio_path.stem}.txt")
             if txt_path.exists():
@@ -67,11 +63,28 @@ def transcribe(audio_path: Path, model: str = "base") -> str:
             return result.stdout.strip()
         except FileNotFoundError:
             raise RuntimeError(
-                "Whisper not found. Install with: pip install openai-whisper"
+                "Whisper not found. Install: pip install openai-whisper"
             )
     finally:
-        # Clean up audio file
         audio_path.unlink(missing_ok=True)
+
+
+def speak(text: str, rate: int = 175) -> None:
+    """Speak text aloud using macOS say command."""
+    try:
+        subprocess.run(
+            ["say", "-r", str(rate), text],
+            check=True, timeout=300,
+        )
+    except FileNotFoundError:
+        try:
+            import pyttsx3
+            engine = pyttsx3.init()
+            engine.setProperty("rate", rate)
+            engine.say(text)
+            engine.runAndWait()
+        except Exception:
+            pass
 
 
 def listen(duration: int = 5, model: str = "base") -> str:
