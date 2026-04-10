@@ -1,32 +1,55 @@
 # Jarvis
 
-A privacy-focused personal AI assistant that runs locally on your hardware using [Ollama](https://ollama.ai).
+A privacy-focused personal AI assistant that runs locally on your hardware using [Ollama](https://ollama.ai). Talk to it with your voice, get morning briefings, research anything, or let it write and run code for you — all without sending data to the cloud.
+
+https://github.com/user-attachments/assets/placeholder
 
 ## Features
 
-- **Local-first** — Runs on your machine with Ollama. No data leaves your computer unless you explicitly enable cloud fallback.
-- **Morning Briefing** — Spoken daily summary of your email, calendar, and news via TTS.
-- **Research Assistant** — Web search (DuckDuckGo) + local document RAG with citations.
-- **Coding Assistant** — LLM-guided code generation with sandboxed execution.
-- **Voice Input** — Speech-to-text via Whisper for hands-free interaction.
-- **Conversation Memory** — Persistent session history across restarts (SQLite).
-- **Task Scheduler** — Automated daily briefing at a configured time.
-- **Cloud Fallback** — Optional OpenAI integration for complex queries when local models aren't enough.
+- **Voice Conversations** — Talk to Jarvis like a real assistant. It listens (Whisper STT), thinks (local LLM), and speaks back (TTS). Just say `/voice`.
+- **Local-first** — Runs entirely on your machine with Ollama. No data leaves your computer unless you explicitly enable cloud fallback.
+- **Morning Briefing** — Spoken daily summary of your email, calendar, and news headlines.
+- **Research Assistant** — Web search (DuckDuckGo) + local document RAG with cited sources.
+- **Coding Assistant** — LLM-guided code generation with sandboxed execution and resource limits.
+- **Conversation Memory** — Persistent session history across restarts (SQLite). Pick up where you left off.
+- **Task Scheduler** — Automated daily briefing at your configured time.
+- **Cloud Fallback** — Optional OpenAI integration when local models aren't enough. Use `--cloud` flag.
 
 ## Quick Start
 
 ```bash
-# 1. Install
+# 1. Clone & install
+git clone https://github.com/metehanulusoy/jarvis.git
 cd jarvis
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e .
 
-# 2. Pull a local model
+# 2. Install Ollama & pull a model
+brew install ollama
+brew services start ollama
 ollama pull llama3.2
-ollama serve
 
 # 3. Run
 jarvis
 ```
+
+### Optional: Voice support
+
+```bash
+brew install sox                   # microphone recording
+pip install openai-whisper         # speech-to-text
+```
+
+### Optional: One-command launch from anywhere
+
+Add this to your `~/.zshrc` or `~/.bashrc`:
+
+```bash
+alias jarvis="source ~/jarvis/.venv/bin/activate && cd ~/jarvis && python3 -m jarvis.cli"
+```
+
+Then just type `jarvis` from any terminal.
 
 ## Usage
 
@@ -42,16 +65,29 @@ jarvis --cloud             # prefer OpenAI over Ollama
 
 | Command | Description |
 |---------|-------------|
-| `/briefing` | Run morning briefing with TTS |
+| `/voice` | **Start voice conversation** — talk and listen hands-free |
+| `/briefing` | Run morning briefing with spoken output |
 | `/research <query>` | Search web + local docs, get cited summary |
 | `/web <query>` | Web-only search |
 | `/docs <query>` | Local documents only |
-| `/code <task>` | Coding assistant with code execution |
-| `/listen` | Voice input (requires sox or ffmpeg) |
+| `/code <task>` | Coding assistant with sandboxed code execution |
+| `/listen` | Single voice input (one question) |
 | `/history` | Show recent conversation |
 | `/sessions` | List all saved sessions |
 | `/clear` | Clear current session history |
 | `/quit` | Exit |
+
+### Voice Mode
+
+Type `/voice` and start talking. Jarvis will:
+
+1. **Listen** to your microphone (6 seconds per turn)
+2. **Transcribe** your speech locally with Whisper
+3. **Think** and generate a response with the local LLM
+4. **Speak** the answer back to you
+5. **Repeat** — it's a continuous conversation
+
+Say "exit", "quit", or "goodbye" to return to text mode.
 
 ### Standalone Commands
 
@@ -61,6 +97,7 @@ jarvis research "query"    # research a topic
 jarvis code "task"         # coding help
 jarvis index               # index documents for RAG
 jarvis listen              # transcribe speech
+jarvis voice               # voice conversation
 jarvis sessions            # list sessions
 ```
 
@@ -82,17 +119,28 @@ briefing:
   news:
     feeds:
       - "https://hnrss.org/frontpage"
+      - "https://feeds.arstechnica.com/arstechnica/index"
+  tts:
+    engine: "say"              # "say" (macOS) or "pyttsx3" (cross-platform)
 
 research:
   documents_dir: "~/jarvis/data/documents"
+  embedding_model: "all-MiniLM-L6-v2"
+  top_k: 5
+
+coding:
+  timeout: 30
+  allowed_dirs:
+    - "~/jarvis/data"
+    - "~"
 ```
 
 **Credentials are never stored in config files** — only environment variable names.
 
 ```bash
 export GMAIL_USER="you@gmail.com"
-export GMAIL_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx"
-export OPENAI_API_KEY="sk-..."  # optional
+export GMAIL_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx"   # Gmail App Password
+export OPENAI_API_KEY="sk-..."                      # optional
 ```
 
 ## Document Search (RAG)
@@ -103,49 +151,40 @@ Drop files into `data/documents/` and index them:
 jarvis index
 ```
 
-Supported formats: PDF, TXT, Markdown. Uses ChromaDB + sentence-transformers for semantic search.
+Supported formats: PDF, TXT, Markdown. Uses ChromaDB + sentence-transformers for semantic search with incremental re-indexing.
 
-## Voice
-
-**Input** (Speech-to-Text): Requires [Whisper](https://github.com/openai/whisper) and an audio recorder:
-
-```bash
-pip install openai-whisper
-brew install sox  # or ffmpeg
-```
-
-**Output** (Text-to-Speech): Uses macOS `say` by default, or `pyttsx3` as fallback.
+Then search with `/docs <query>` or `/research <query>` (combines web + local docs).
 
 ## Architecture
 
 ```
 jarvis/
-├── cli.py              # Entry point, REPL, command routing
-├── config.py           # YAML config loader
+├── cli.py              # Entry point, REPL, command routing, voice mode
+├── config.py           # YAML config loader (secrets from env vars only)
 ├── sessions.py         # SQLite conversation persistence
-├── scheduler.py        # Background task scheduler
-├── speech.py           # Whisper STT + audio recording
+├── scheduler.py        # Background task scheduler (cron-style)
+├── speech.py           # Whisper STT + sox recording + macOS TTS
 ├── llm/
 │   ├── base.py         # LLM protocol definition
-│   ├── ollama_backend.py
-│   ├── openai_backend.py
+│   ├── ollama_backend.py   # Local inference via Ollama
+│   ├── openai_backend.py   # Cloud fallback via OpenAI
 │   └── router.py       # Auto-selects best available backend
 ├── briefing/
-│   ├── email_source.py # Gmail IMAP
-│   ├── calendar_source.py
-│   ├── news_source.py  # RSS feeds
-│   ├── tts.py          # Text-to-speech
-│   └── briefing.py     # Orchestrator
+│   ├── email_source.py # Gmail IMAP with SSL validation
+│   ├── calendar_source.py  # ICS file parser
+│   ├── news_source.py  # RSS feed aggregator
+│   ├── tts.py          # Text-to-speech output
+│   └── briefing.py     # Orchestrates sources + LLM summary + speech
 ├── research/
-│   ├── web_search.py   # DuckDuckGo
-│   ├── doc_index.py    # ChromaDB RAG pipeline
-│   └── research.py     # Orchestrator
+│   ├── web_search.py   # DuckDuckGo search
+│   ├── doc_index.py    # ChromaDB + sentence-transformers RAG pipeline
+│   └── research.py     # Orchestrates search + RAG + cited summary
 ├── coding/
-│   ├── sandbox.py      # Subprocess execution + resource limits
-│   ├── file_ops.py     # Scoped file access
-│   └── coding.py       # Orchestrator
+│   ├── sandbox.py      # Subprocess execution with resource limits
+│   ├── file_ops.py     # Scoped file access with symlink protection
+│   └── coding.py       # LLM-guided code generation & execution
 └── utils/
-    └── text.py         # Chunking, PDF extraction, sanitization
+    └── text.py         # Chunking, PDF extraction, prompt injection sanitization
 ```
 
 ## Security
@@ -154,8 +193,17 @@ jarvis/
 - Code execution runs in a **subprocess sandbox** with resource limits (memory, disk, CPU)
 - Sensitive env vars (API keys, passwords) are **stripped** from sandbox environment
 - File operations are **scoped** to configured directories; symlink writes are blocked
-- External data (emails, web results) is **sanitized** before passing to the LLM
+- External data (emails, web results) is **sanitized** with prompt injection detection before passing to the LLM
 - IMAP connections use **explicit SSL certificate validation**
+- Dependency versions are **pinned to major ranges** to prevent supply chain attacks
+
+## Requirements
+
+- **Python** 3.11+
+- **Ollama** with any model (default: `llama3.2`)
+- **macOS** recommended (uses `say` for TTS, `avfoundation` for audio)
+- **sox** for voice input (`brew install sox`)
+- **Whisper** for STT (`pip install openai-whisper`)
 
 ## License
 
