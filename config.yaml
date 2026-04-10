@@ -1,0 +1,36 @@
+llm:
+  ollama:
+    model: "llama3.2"
+    url: "http://localhost:11434"
+  openai:
+    model: "gpt-4o-mini"
+    api_key_env: "OPENAI_API_KEY"   # reads from this env var; never put the key here
+
+briefing:
+  email:
+    imap_server: "imap.gmail.com"
+    username_env: "GMAIL_USER"
+    password_env: "GMAIL_APP_PASSWORD"
+    max_emails: 20
+  calendar:
+    type: "ics"
+    path: "~/calendars/personal.ics"
+  news:
+    feeds:
+      - "https://hnrss.org/frontpage"
+      - "https://feeds.arstechnica.com/arstechnica/index"
+    max_items_per_feed: 5
+  tts:
+    engine: "say"       # "say" (macOS native) or "pyttsx3"
+    rate: 175
+
+research:
+  documents_dir: "~/jarvis/data/documents"
+  embedding_model: "all-MiniLM-L6-v2"
+  top_k: 5
+
+coding:
+  timeout: 30
+  allowed_dirs:
+    - "~/jarvis/data"
+    - "~"
